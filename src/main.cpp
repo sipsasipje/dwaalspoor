@@ -6,18 +6,41 @@
 #include "secrets.h"
 #include <Adafruit_NeoPixel.h>
 
+// Settings
+int hold = 5000;
+int fade = 1000;
+
+// LED strip configuration.
 #define LEDS_PIN 2
 #define LEDS_NUM 20
-
 Adafruit_NeoPixel LEDS = Adafruit_NeoPixel(LEDS_NUM, LEDS_PIN, NEO_GRB + NEO_KHZ800);
 
+// UV LED configuration.
 #define UV_PIN 3
 
-int nextRGBColor = 0;   // Set color to: 0 - R, 1 - G, 2 - B
-unsigned long then = 0; // Time of last update.
-int interval = 5000;
+// Program state.
+#define duration millis() - stamp
+unsigned long stamp = 0; // Timestamp
 
-// Gets next color in RGB sequence.
+uint32_t currentColor;
+int nextRGBColor = 0; // Set color to: 0 - R, 1 - G, 2 - B
+
+enum State
+{
+  setColor,
+  fadeIn,
+  holdColor,
+  fadeOut,
+  uvOn,
+  uvOff
+};
+State state = State::setColor;
+
+/**
+ * Gets next color in RGB sequence.
+ *
+ * @return uint32_t - RGB color.
+ */
 uint32_t getNextRGBColor()
 {
   int rgb[3] = {0, 0, 0};
@@ -28,7 +51,11 @@ uint32_t getNextRGBColor()
   return LEDS.Color(rgb[0], rgb[1], rgb[2]);
 }
 
-// Gets specific color or random color if not specified.
+/**
+ * Get specific color or random color if not specified.
+ *
+ * @param int *rgb - RGB color values 0-255.
+ */
 uint32_t getColor(int *rgb = nullptr)
 {
   if (rgb == nullptr)
@@ -42,57 +69,89 @@ uint32_t getColor(int *rgb = nullptr)
   return LEDS.Color(rgb[0], rgb[1], rgb[2]);
 }
 
-// Changes color of LEDs.
-void changeLEDSColor(uint32_t color)
+/**
+ * Calculate the ratio of the fade at the current time.
+ *
+ * @param bool out - Fade out.
+ * @return uint8_t - Ratio.
+ */
+float getFadeRatio(bool out = false)
 {
-  unsigned long now = millis();
+  float ratio = float(duration) / float(fade);
+  return !out ? ratio : 1.0 - ratio;
+}
 
-  if (now - then >= interval)
+/**
+ * Get a color in a different brightness.
+ *
+ * @return uint32_t - Adjusted color.
+ */
+uint32_t getBrightnessColor(uint32_t color, float ratio)
+{
+  ratio = constrain(ratio, 0.0f, 1.0f); // Brightness ratio.
+
+  int rgb[3];
+  int bytes[3] = {16, 8, 0}; // R, G, B bytes.
+
+  for (int i; i <= 2; i++)
   {
-    LEDS.fill(color, 0, LEDS_NUM);
+    int byte = (color >> bytes[i]) & 0xFF; // Separate the R, G, B bytes
+    rgb[i] = (uint8_t)(byte * ratio);      // Set the brightness of each value.
   }
+
+  return LEDS.Color(rgb[0], rgb[1], rgb[2]);
 }
 
-void fadeIn()
-{
-  // float brightness = 255.0 * (float(millis() - fadeStart) / 1000);
-  LEDS.setBrightness(0);
-}
-
-// Updates program state.
-void state()
-{
-  changeLEDSColor(getNextRGBColor());
-}
-
-// Update the display.
-void display()
-{
-  LEDS.show();
-}
-
+/**
+ * Setup the Arduino.
+ */
 void setup()
 {
   Serial.begin(9600); // Enable writing messages to monitor.
+  while (!Serial)
 
-  pinMode(LEDS_PIN, OUTPUT);
+    pinMode(LEDS_PIN, OUTPUT);
   pinMode(UV_PIN, OUTPUT);
 
   LEDS.begin();
-
-  state();
-  display();
 }
 
+/**
+ * Main loop.
+ */
 void loop()
 {
-  unsigned long now = millis();
-
-  if (now - then >= interval)
+  switch (state)
   {
-    then = now;
+  case setColor:
+    currentColor = getNextRGBColor();
+    LEDS.fill(currentColor, 0, LEDS_NUM);
 
-    state();
-    display();
+    stamp = millis();
+    state = State::fadeIn;
+    break;
+  case fadeIn:
+  case fadeOut:
+  {
+    bool out = state == fadeOut ? true : false;
+    uint32_t newColor = getBrightnessColor(currentColor, getFadeRatio(out));
+
+    LEDS.fill(newColor, 0, LEDS_NUM);
+    LEDS.show();
+
+    if (duration >= fade)
+    {
+      stamp = millis();
+      state = !out ? State::holdColor : State::setColor;
+    }
+    break;
+  }
+  case holdColor:
+    if (duration >= hold)
+    {
+      stamp = millis();
+      state = State::fadeOut;
+    }
+    break;
   }
 }
