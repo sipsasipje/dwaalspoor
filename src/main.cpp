@@ -63,6 +63,7 @@ unsigned long stamp = 0; // Timestamp
 
 State state;
 uint32_t currentColor;
+uint32_t nextColor;
 uint8_t rgbIndex = 0; // Set color to: 0 - R, 1 - G, 2 - B
 bool isHolding = false;
 
@@ -94,7 +95,7 @@ void setState()
       sequenceIndex++;
 
       if (removeWhenDone)
-      { 
+      {
         for (uint8_t i = sequenceIndex; i < numSequences; i++)
         {
           sequences[i - 1] = sequences[i]; // Shift the sequences left.
@@ -149,53 +150,40 @@ uint32_t getRGBColor(uint8_t byte = 0)
  * @param bool out - Fade out.
  * @return uint8_t - Ratio.
  */
-float getFadeRatio(bool out = false)
+float getFadeRatio()
 {
+  bool isInverted = state == fadeOut;
+
   float ratio = float(duration) / float(fade);
-  return !out ? ratio : 1.0 - ratio;
+  return !isInverted ? ratio : 1.0 - ratio;
 }
 
 /**
- * Get a color in a different brightness.
+ * Get a color in a different shade.
  *
  * @return uint32_t - Adjusted color.
  */
-uint32_t getBrightnessColor(uint32_t color, float ratio)
+uint32_t getShade()
 {
-  ratio = constrain(ratio, 0.0f, 1.0f); // Brightness ratio.
+  bool useNextColor = state == xFade;
+  float ratio = getFadeRatio();
 
   uint8_t rgb[3];                // Resulting color.
   uint8_t bytes[3] = {16, 8, 0}; // R, G, B bytes.
 
   for (uint8_t i = 0; i <= 2; i++)
   {
-    uint8_t byte = (color >> bytes[i]) & 0xFF; // Separate the R, G, B bytes of the input color.
-    rgb[i] = (uint8_t)(byte * ratio);          // Set the brightness of each separate value.
+    uint8_t byte = (currentColor >> bytes[i]) & 0xFF; // Separate the R, G, B bytes of the input color.
+    uint8_t newValue = (uint8_t)(byte * ratio); // Set the brightness of the color.
+
+    if(useNextColor) {
+      uint8_t nextByte = (nextColor >> bytes[i]) & 0xFF; // Separate the R, G, B bytes of the input color.
+      newValue = (uint8_t)((1.0f - ratio) * byte + ratio * nextByte); // Interpolate the color.
+    }
+
+    rgb[i] = newValue;
   }
 
-  return LEDS.Color(rgb[0], rgb[1], rgb[2]);
-}
-
-uint32_t fadeColor(uint32_t startColor, uint32_t endColor, float ratio)
-{
-  ratio = constrain(ratio, 0.0f, 1.0f); // Ensure the ratio is between 0 and 1.
-
-  uint8_t start[3];
-  uint8_t end[3];
-  uint8_t rgb[3];
-  uint8_t bytes[3] = {16, 8, 0}; // R, G, B bytes.
-
-  // Extract R, G, B values for start and end colors
-  for (uint8_t i = 0; i <= 2; i++)
-  {
-    start[i] = (startColor >> bytes[i]) & 0xFF;
-    end[i] = (endColor >> bytes[i]) & 0xFF;
-
-    // Interpolate each color channel based on the ratio
-    rgb[i] = (uint8_t)((1.0f - ratio) * start[i] + ratio * end[i]);
-  }
-
-  // Return the new color by combining the R, G, B components
   return LEDS.Color(rgb[0], rgb[1], rgb[2]);
 }
 
@@ -233,7 +221,9 @@ void loop()
   {
   case setColor:
     currentColor = getRGBColor(rgbIndex);
+
     rgbIndex = (rgbIndex + 1) % 3;
+    nextColor = getRGBColor(rgbIndex);
 
     LEDS.fill(currentColor, 0, LEDS_NUM);
 
@@ -241,24 +231,11 @@ void loop()
     break;
   case fadeIn:
   case fadeOut:
-  {
-    bool out = state == fadeOut ? true : false;
-    uint32_t newColor = getBrightnessColor(currentColor, getFadeRatio(out));
-
-    LEDS.fill(newColor, 0, LEDS_NUM);
-    LEDS.show();
-
-    if (duration >= fade)
-    {
-      next();
-    }
-    break;
-  }
   case xFade:
   {
-    uint32_t newColor = fadeColor(currentColor, getRGBColor(rgbIndex), getFadeRatio());
-    
-    LEDS.fill(newColor, 0, LEDS_NUM);
+    uint32_t shade = getShade();
+
+    LEDS.fill(shade, 0, LEDS_NUM);
     LEDS.show();
 
     if (duration >= fade)
@@ -268,9 +245,10 @@ void loop()
     break;
   }
   case holdColor:
-    if (!isHolding){
+    if (!isHolding)
+    {
       LEDS.show();
-      isHolding = true; 
+      isHolding = true;
     }
 
     if (duration >= hold)
