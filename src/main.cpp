@@ -155,6 +155,8 @@ float getFadeRatio()
   bool isInverted = state == fadeOut;
 
   float ratio = float(duration) / float(fade);
+  ratio = constrain(ratio, 0.0, 1.0);
+  
   return !isInverted ? ratio : 1.0 - ratio;
 }
 
