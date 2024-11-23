@@ -31,17 +31,22 @@ struct Sequence
 #define LEDS_PIN 4
 #define LEDS_NUM 300
 
-unsigned int hold = 5000; // Hold the lights.
+unsigned int hold = 2000; // Hold the lights.
 unsigned int fade = 500;  // Fade duration.
 
 // Sequences of steps we want to execute.
-State sequence1[] = {setColor, fadeIn, holdColor, fadeOut};
-State sequence2[] = {uvOn, uvOff};
+// State sequence1[] = {setColor, fadeIn, holdColor, fadeOut};
+// State sequence2[] = {uvOn, uvOff};
+State sequence1[] = {setColor, fadeIn, holdColor, xFade};
+State sequence2[] = {setColor, holdColor, xFade};
 
 // In what order, length of the sequence and how many times we want to execute the sequences.
+// Sequence sequences[] = {
+//     {sequence1, 4, 3, false},
+//     {sequence2, 2, 2, true}};
 Sequence sequences[] = {
-    {sequence1, 4, 3, false},
-    {sequence2, 2, 1, true}};
+    {sequence1, 4, 1, true},
+    {sequence2, 3, 1, false}};
 /**
  * End settings
  */
@@ -61,11 +66,14 @@ uint32_t currentColor;
 uint8_t rgbIndex = 0; // Set color to: 0 - R, 1 - G, 2 - B
 bool isHolding = false;
 
+/**
+ * Updates the current sequence and state.
+ */
 void setState()
 {
   static uint8_t sequenceIndex = 0, stateIndex = 0, repeatIndex = 0;
+  static uint8_t numSequences = sizeof(sequences) / sizeof(Sequence);
 
-  uint8_t numSequences = sizeof(sequences) / sizeof(Sequence);
   Sequence sequence = sequences[sequenceIndex];
   uint8_t sequenceLength = sequence.length;
   uint8_t sequenceRepeat = sequence.repeat;
@@ -83,7 +91,16 @@ void setState()
     if (repeatIndex >= sequenceRepeat)
     { // We've repeated the sequence the desired number of times.
       repeatIndex = 0;
-      sequenceIndex++; 
+      sequenceIndex++;
+
+      if (removeWhenDone)
+      { 
+        for (uint8_t i = sequenceIndex; i < numSequences; i++)
+        {
+          sequences[i - 1] = sequences[i]; // Shift the sequences left.
+        }
+        numSequences--; // We have one less sequence now.
+      }
 
       if (sequenceIndex >= numSequences)
       { // We've reached the end of all sequences.
