@@ -19,9 +19,10 @@ enum State
 
 struct Sequence
 {
-  State *sequence;
+  State *states;
   uint8_t length;
   uint8_t repeat;
+  bool removeWhenDone;
 };
 
 /**
@@ -34,17 +35,13 @@ unsigned int hold = 5000; // Hold the lights.
 unsigned int fade = 500;  // Fade duration.
 
 // Sequences of steps we want to execute.
-// State sequence1[] = {setColor, fadeIn, holdColor, fadeOut};
-State sequence1[] = {setColor, xFade, holdColor};
-// State sequence2[] = {fadeOut};
-// State sequence3[] = {uvOn, uvOff};
+State sequence1[] = {setColor, fadeIn, holdColor, fadeOut};
+State sequence2[] = {uvOn, uvOff};
 
 // In what order, length of the sequence and how many times we want to execute the sequences.
 Sequence sequences[] = {
-    {sequence1, 3, 3},
-    // {sequence2, 1, 1},
-    // {sequence3, 2, 1}
-};
+    {sequence1, 4, 3, false},
+    {sequence2, 2, 1, true}};
 /**
  * End settings
  */
@@ -61,17 +58,20 @@ unsigned long stamp = 0; // Timestamp
 
 State state;
 uint32_t currentColor;
-uint8_t nextRGBColor = 0; // Set color to: 0 - R, 1 - G, 2 - B
+uint8_t rgbIndex = 0; // Set color to: 0 - R, 1 - G, 2 - B
+bool isHolding = false;
 
 void setState()
 {
   static uint8_t sequenceIndex = 0, stateIndex = 0, repeatIndex = 0;
 
   uint8_t numSequences = sizeof(sequences) / sizeof(Sequence);
-  uint8_t sequenceLength = sequences[sequenceIndex].length;
-  uint8_t sequenceRepeat = sequences[sequenceIndex].repeat;
+  Sequence sequence = sequences[sequenceIndex];
+  uint8_t sequenceLength = sequence.length;
+  uint8_t sequenceRepeat = sequence.repeat;
+  bool removeWhenDone = sequence.removeWhenDone;
 
-  state = sequences[sequenceIndex].sequence[stateIndex];
+  state = sequence.states[stateIndex];
 
   stateIndex++;
 
@@ -83,7 +83,7 @@ void setState()
     if (repeatIndex >= sequenceRepeat)
     { // We've repeated the sequence the desired number of times.
       repeatIndex = 0;
-      sequenceIndex++;
+      sequenceIndex++; 
 
       if (sequenceIndex >= numSequences)
       { // We've reached the end of all sequences.
@@ -183,6 +183,15 @@ uint32_t fadeColor(uint32_t startColor, uint32_t endColor, float ratio)
 }
 
 /**
+ * Initialize the next state.
+ */
+void next()
+{
+  stamp = millis();
+  setState();
+}
+
+/**
  * Setup the Arduino.
  */
 void setup()
@@ -206,14 +215,12 @@ void loop()
   switch (state)
   {
   case setColor:
-    currentColor = getRGBColor(nextRGBColor);
-    nextRGBColor = (nextRGBColor + 1) % 3;
+    currentColor = getRGBColor(rgbIndex);
+    rgbIndex = (rgbIndex + 1) % 3;
 
     LEDS.fill(currentColor, 0, LEDS_NUM);
-    LEDS.show();
 
-    stamp = millis();
-    setState();
+    next();
     break;
   case fadeIn:
   case fadeOut:
@@ -226,43 +233,46 @@ void loop()
 
     if (duration >= fade)
     {
-      stamp = millis();
-      setState();
+      next();
     }
     break;
   }
   case xFade:
   {
-    uint32_t newColor = fadeColor(currentColor, getRGBColor(nextRGBColor), getFadeRatio());
-
+    uint32_t newColor = fadeColor(currentColor, getRGBColor(rgbIndex), getFadeRatio());
+    
     LEDS.fill(newColor, 0, LEDS_NUM);
     LEDS.show();
 
     if (duration >= fade)
     {
-      stamp = millis();
-      setState();
+      next();
     }
     break;
   }
   case holdColor:
+    if (!isHolding){
+      LEDS.show();
+      isHolding = true; 
+    }
+
     if (duration >= hold)
     {
-      stamp = millis();
-      setState();
+      isHolding = false;
+      next();
     }
     break;
   case uvOn:
     digitalWrite(UV_PIN, HIGH);
-    stamp = millis();
-    setState();
+
+    next();
     break;
   case uvOff:
     if (duration >= hold)
     {
       digitalWrite(UV_PIN, LOW);
-      stamp = millis();
-      setState();
+
+      next();
     }
     break;
   }
