@@ -6,13 +6,50 @@
 #include "secrets.h"
 #include <Adafruit_NeoPixel.h>
 
-// Settings
-int hold = 5000;
-int fade = 1000;
+enum State
+{
+  setColor,
+  fadeIn,
+  holdColor,
+  fadeOut,
+  xFade,
+  uvOn,
+  uvOff
+};
+
+struct Sequence
+{
+  State *sequence;
+  uint8_t length;
+  uint8_t repeat;
+};
+
+/**
+ * Settings
+ */
+#define LEDS_PIN 4
+#define LEDS_NUM 300
+
+unsigned int hold = 5000; // Hold the lights.
+unsigned int fade = 500;  // Fade duration.
+
+// Sequences of steps we want to execute.
+// State sequence1[] = {setColor, fadeIn, holdColor, fadeOut};
+State sequence1[] = {setColor, xFade, holdColor};
+// State sequence2[] = {fadeOut};
+// State sequence3[] = {uvOn, uvOff};
+
+// In what order, length of the sequence and how many times we want to execute the sequences.
+Sequence sequences[] = {
+    {sequence1, 3, 3},
+    // {sequence2, 1, 1},
+    // {sequence3, 2, 1}
+};
+/**
+ * End settings
+ */
 
 // LED strip configuration.
-#define LEDS_PIN 2
-#define LEDS_NUM 20
 Adafruit_NeoPixel LEDS = Adafruit_NeoPixel(LEDS_NUM, LEDS_PIN, NEO_GRB + NEO_KHZ800);
 
 // UV LED configuration.
@@ -22,51 +59,71 @@ Adafruit_NeoPixel LEDS = Adafruit_NeoPixel(LEDS_NUM, LEDS_PIN, NEO_GRB + NEO_KHZ
 #define duration millis() - stamp
 unsigned long stamp = 0; // Timestamp
 
+State state;
 uint32_t currentColor;
-int nextRGBColor = 0; // Set color to: 0 - R, 1 - G, 2 - B
+uint8_t nextRGBColor = 0; // Set color to: 0 - R, 1 - G, 2 - B
 
-enum State
+void setState()
 {
-  setColor,
-  fadeIn,
-  holdColor,
-  fadeOut,
-  uvOn,
-  uvOff
-};
-State state = State::setColor;
+  static uint8_t sequenceIndex = 0, stateIndex = 0, repeatIndex = 0;
 
-/**
- * Gets next color in RGB sequence.
- *
- * @return uint32_t - RGB color.
- */
-uint32_t getNextRGBColor()
-{
-  int rgb[3] = {0, 0, 0};
-  rgb[nextRGBColor] = 255;
+  uint8_t numSequences = sizeof(sequences) / sizeof(Sequence);
+  uint8_t sequenceLength = sequences[sequenceIndex].length;
+  uint8_t sequenceRepeat = sequences[sequenceIndex].repeat;
 
-  nextRGBColor = (nextRGBColor + 1) % 3;
+  state = sequences[sequenceIndex].sequence[stateIndex];
 
-  return LEDS.Color(rgb[0], rgb[1], rgb[2]);
+  stateIndex++;
+
+  if (stateIndex >= sequenceLength)
+  { // We've reached the end of the current sequence.
+    stateIndex = 0;
+    repeatIndex++;
+
+    if (repeatIndex >= sequenceRepeat)
+    { // We've repeated the sequence the desired number of times.
+      repeatIndex = 0;
+      sequenceIndex++;
+
+      if (sequenceIndex >= numSequences)
+      { // We've reached the end of all sequences.
+        sequenceIndex = 0;
+      }
+    }
+  }
 }
 
 /**
  * Get specific color or random color if not specified.
  *
- * @param int *rgb - RGB color values 0-255.
+ * @param uint8_t *rgb - RGB color values 0-255.
  */
-uint32_t getColor(int *rgb = nullptr)
+uint32_t getColor(uint8_t *rgb = nullptr)
 {
   if (rgb == nullptr)
   {
-    for (int i = 0; i <= 2; i++)
+    for (uint8_t i = 0; i <= 2; i++)
     {
       rgb[i] = random(0, 255);
     }
   }
 
   return LEDS.Color(rgb[0], rgb[1], rgb[2]);
+}
+
+/**
+ * Gets color in RGB sequence.
+ *
+ * @param uint8_t byte - Byte to set to 255.
+ *
+ * @return uint32_t - Packed RGB color.
+ */
+uint32_t getRGBColor(uint8_t byte = 0)
+{
+  uint8_t rgb[3] = {0, 0, 0};
+  rgb[byte] = 255;
+
+  return getColor(rgb);
 }
 
 /**
@@ -90,15 +147,38 @@ uint32_t getBrightnessColor(uint32_t color, float ratio)
 {
   ratio = constrain(ratio, 0.0f, 1.0f); // Brightness ratio.
 
-  int rgb[3];
-  int bytes[3] = {16, 8, 0}; // R, G, B bytes.
+  uint8_t rgb[3];                // Resulting color.
+  uint8_t bytes[3] = {16, 8, 0}; // R, G, B bytes.
 
-  for (int i; i <= 2; i++)
+  for (uint8_t i = 0; i <= 2; i++)
   {
-    int byte = (color >> bytes[i]) & 0xFF; // Separate the R, G, B bytes
-    rgb[i] = (uint8_t)(byte * ratio);      // Set the brightness of each value.
+    uint8_t byte = (color >> bytes[i]) & 0xFF; // Separate the R, G, B bytes of the input color.
+    rgb[i] = (uint8_t)(byte * ratio);          // Set the brightness of each separate value.
   }
 
+  return LEDS.Color(rgb[0], rgb[1], rgb[2]);
+}
+
+uint32_t fadeColor(uint32_t startColor, uint32_t endColor, float ratio)
+{
+  ratio = constrain(ratio, 0.0f, 1.0f); // Ensure the ratio is between 0 and 1.
+
+  uint8_t start[3];
+  uint8_t end[3];
+  uint8_t rgb[3];
+  uint8_t bytes[3] = {16, 8, 0}; // R, G, B bytes.
+
+  // Extract R, G, B values for start and end colors
+  for (uint8_t i = 0; i <= 2; i++)
+  {
+    start[i] = (startColor >> bytes[i]) & 0xFF;
+    end[i] = (endColor >> bytes[i]) & 0xFF;
+
+    // Interpolate each color channel based on the ratio
+    rgb[i] = (uint8_t)((1.0f - ratio) * start[i] + ratio * end[i]);
+  }
+
+  // Return the new color by combining the R, G, B components
   return LEDS.Color(rgb[0], rgb[1], rgb[2]);
 }
 
@@ -114,6 +194,8 @@ void setup()
   pinMode(UV_PIN, OUTPUT);
 
   LEDS.begin();
+
+  setState();
 }
 
 /**
@@ -124,11 +206,14 @@ void loop()
   switch (state)
   {
   case setColor:
-    currentColor = getNextRGBColor();
+    currentColor = getRGBColor(nextRGBColor);
+    nextRGBColor = (nextRGBColor + 1) % 3;
+
     LEDS.fill(currentColor, 0, LEDS_NUM);
+    LEDS.show();
 
     stamp = millis();
-    state = State::fadeIn;
+    setState();
     break;
   case fadeIn:
   case fadeOut:
@@ -142,7 +227,21 @@ void loop()
     if (duration >= fade)
     {
       stamp = millis();
-      state = !out ? State::holdColor : State::setColor;
+      setState();
+    }
+    break;
+  }
+  case xFade:
+  {
+    uint32_t newColor = fadeColor(currentColor, getRGBColor(nextRGBColor), getFadeRatio());
+
+    LEDS.fill(newColor, 0, LEDS_NUM);
+    LEDS.show();
+
+    if (duration >= fade)
+    {
+      stamp = millis();
+      setState();
     }
     break;
   }
@@ -150,8 +249,23 @@ void loop()
     if (duration >= hold)
     {
       stamp = millis();
-      state = State::fadeOut;
+      setState();
+    }
+    break;
+  case uvOn:
+    digitalWrite(UV_PIN, HIGH);
+    stamp = millis();
+    setState();
+    break;
+  case uvOff:
+    if (duration >= hold)
+    {
+      digitalWrite(UV_PIN, LOW);
+      stamp = millis();
+      setState();
     }
     break;
   }
+
+  delay(10);
 }
