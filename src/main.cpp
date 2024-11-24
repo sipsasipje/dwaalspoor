@@ -6,11 +6,15 @@
 #include "secrets.h"
 #include <Adafruit_NeoPixel.h>
 
-enum LEDMode {
-  rgb,
+#define LEDS_PIN 4
+#define LEDS_NUM 300
+
+enum LEDMode
+{
+  rgbMode,
   randomMode,
-  series
-}
+  seriesMode
+};
 
 enum State
 {
@@ -22,7 +26,6 @@ enum State
   uvOn,
   uvOff
 };
-
 struct Sequence
 {
   State *states;
@@ -31,34 +34,7 @@ struct Sequence
   bool removeWhenDone;
 };
 
-/**
- * Settings
- */
-#define LEDS_PIN 4
-#define LEDS_NUM 300
-
-LEDMode ledMode = LEDMode::rgb; // rgb, rand, series
-// int series[] = {};
-
-unsigned int hold = 2000; // Hold the lights.
-unsigned int fade = 500;  // Fade duration.
-
-// Sequences of steps we want to execute.
-// State sequence1[] = {setColor, fadeIn, holdColor, fadeOut};
-// State sequence2[] = {uvOn, uvOff};
-State sequence1[] = {setColor, fadeIn, holdColor, xFade};
-State sequence2[] = {setColor, holdColor, xFade};
-
-// In what order, length of the sequence and how many times we want to execute the sequences.
-// Sequence sequences[] = {
-//     {sequence1, 4, 3, false},
-//     {sequence2, 2, 2, true}};
-Sequence sequences[] = {
-    {sequence1, 4, 1, true},
-    {sequence2, 3, 1, false}};
-/**
- * End settings
- */
+#include "settings.h"
 
 // LED strip configuration.
 Adafruit_NeoPixel LEDS = Adafruit_NeoPixel(LEDS_NUM, LEDS_PIN, NEO_GRB + NEO_KHZ800);
@@ -85,10 +61,12 @@ uint32_t getColor(uint8_t *rgb = nullptr)
 {
   if (rgb == nullptr)
   {
+    uint8_t local[3];
     for (uint8_t i = 0; i <= 2; i++)
     {
-      rgb[i] = random(0, 255);
+      local[i] = random(0, 255);
     }
+    rgb = local;
   }
 
   return LEDS.Color(rgb[0], rgb[1], rgb[2]);
@@ -141,10 +119,11 @@ uint32_t getShade()
   for (uint8_t i = 0; i <= 2; i++)
   {
     uint8_t byte = (currentColor >> bytes[i]) & 0xFF; // Separate the R, G, B bytes of the input color.
-    uint8_t newValue = (uint8_t)(byte * ratio); // Set the brightness of the color.
+    uint8_t newValue = (uint8_t)(byte * ratio);       // Set the brightness of the color.
 
-    if(useNextColor) {
-      uint8_t nextByte = (nextColor >> bytes[i]) & 0xFF; // Separate the R, G, B bytes of the input color.
+    if (useNextColor)
+    {
+      uint8_t nextByte = (nextColor >> bytes[i]) & 0xFF;              // Separate the R, G, B bytes of the input color.
       newValue = (uint8_t)((1.0f - ratio) * byte + ratio * nextByte); // Interpolate the color.
     }
 
@@ -154,20 +133,26 @@ uint32_t getShade()
   return LEDS.Color(rgb[0], rgb[1], rgb[2]);
 }
 
-void setColors(){
-  switch(ledMode){
-    case LEDMode::rgb:
-      currentColor = getRGBColor(colorIndex);
-      colorIndex = (colorIndex + 1) % 3;
-      nextColor = getRGBColor(colorIndex);
-      break;
-    case LEDMode::randomMode:
-      currentColor = nextColor ? nextColor : getColor();
-      nextColor = getColor();
-      break;
-    case LEDMode::series:
-      // currentColor = series[rgbIndex];
-      break;
+void setColors()
+{
+  switch (ledMode)
+  {
+  case rgbMode:
+    currentColor = getRGBColor(colorIndex);
+    colorIndex = (colorIndex + 1) % 3;
+    nextColor = getRGBColor(colorIndex);
+    break;
+  case randomMode:
+    currentColor = nextColor ? nextColor : getColor();
+    Serial.println(currentColor);
+    nextColor = getColor();
+    Serial.println(nextColor);
+    break;
+  case seriesMode:
+    currentColor = getColor(series[colorIndex]);
+    colorIndex = (colorIndex + 1) % seriesLength;
+    nextColor =  getColor(series[colorIndex]);
+    break;
   }
 }
 
@@ -223,7 +208,6 @@ void next()
   stamp = millis();
   setState();
 }
-
 
 /**
  * Setup the Arduino.
