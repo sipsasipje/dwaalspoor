@@ -11,7 +11,6 @@
 
 enum LEDMode
 {
-  rgbMode,
   randomMode,
   seriesMode
 };
@@ -73,21 +72,6 @@ uint32_t getColor(uint8_t *rgb = nullptr)
 }
 
 /**
- * Gets color in RGB sequence.
- *
- * @param uint8_t byte - Byte to set to 255.
- *
- * @return uint32_t - Packed RGB color.
- */
-uint32_t getRGBColor(uint8_t byte = 0)
-{
-  uint8_t rgb[3] = {0, 0, 0};
-  rgb[byte] = 255;
-
-  return getColor(rgb);
-}
-
-/**
  * Calculate the ratio of the fade at the current time.
  *
  * @param bool out - Fade out.
@@ -137,16 +121,9 @@ void setColors()
 {
   switch (ledMode)
   {
-  case rgbMode:
-    currentColor = getRGBColor(colorIndex);
-    colorIndex = (colorIndex + 1) % 3;
-    nextColor = getRGBColor(colorIndex);
-    break;
   case randomMode:
     currentColor = nextColor ? nextColor : getColor();
-    Serial.println(currentColor);
     nextColor = getColor();
-    Serial.println(nextColor);
     break;
   case seriesMode:
     currentColor = getColor(series[colorIndex]);
