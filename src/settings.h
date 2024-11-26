@@ -1,3 +1,11 @@
+// UTC offset.
+#define TIMEOFFSET 1
+
+// Run between start and end time if AUTOPAUSE is true.
+#define AUTOPAUSE true
+int start[2] = {14, 00};
+int end[2] = {7, 00};
+
 // Hold the lights.
 unsigned int hold = 2000;
 // Fade duration.

@@ -42,6 +42,8 @@ Adafruit_NeoPixel LEDS = Adafruit_NeoPixel(LEDS_NUM, LEDS_PIN, NEO_GRB + NEO_KHZ
 #define UV_PIN 3
 
 // Program state.
+bool isPaused = false; // Program is paused.
+
 #define duration millis() - stamp
 unsigned long stamp = 0; // Timestamp
 
@@ -50,6 +52,154 @@ uint32_t currentColor;
 uint32_t nextColor;
 uint8_t colorIndex = 0; // Set color to: 0 - R, 1 - G, 2 - B or index of series.
 bool isHolding = false;
+
+// WiFi settings.
+int wifiStatus = WL_IDLE_STATUS;
+WiFiUDP udp;
+
+// Time settings.
+NTPClient ntpcClient(udp, "nl.pool.ntp.org");
+
+/**
+ * Validate user settings.
+ */
+void validateSettings()
+{
+  auto checkTime = [](int time[2])
+  {
+    time[0] = time[0] % 24;
+    time[1] = time[1] % 60;
+  };
+
+  checkTime(start);
+  checkTime(end);
+}
+
+/**
+ * Make WiFi connection.
+ */
+void connectWiFi()
+{
+  while (wifiStatus != WL_CONNECTED)
+  {
+    Serial.println("Attempting to connect to Wifi.");
+    wifiStatus = WiFi.begin(ssid, pass);
+    delay(10000);
+  }
+  Serial.println("Connected to WiFi");
+}
+
+/**
+ * Set the realtime clock.
+ */
+void setClock()
+{
+  RTC.begin();
+  ntpcClient.begin();
+  ntpcClient.update();
+
+  auto unixTime = ntpcClient.getEpochTime() + (3600 * TIMEOFFSET);
+  RTCTime rtcTime = RTCTime(unixTime);
+  rtcTime.setSaveLight(SaveLight::SAVING_TIME_ACTIVE);
+
+  // int dayOfMonth = rtcTime.getDayOfMonth();
+  // Month month = rtcTime.getMonth();
+  // int year = rtcTime.getYear();
+  // int hour = rtcTime.getHour() + TIMEOFFSET;
+  // int minutes = rtcTime.getMinutes();
+  // int seconds = rtcTime.getSeconds();
+  // DayOfWeek dayOfWeek = rtcTime.getDayOfWeek();
+
+  // RTCTime start(dayOfMonth, month, year, hour, minutes, seconds, dayOfWeek, SaveLight::SAVING_TIME_ACTIVE);
+  RTC.setTime(rtcTime);
+}
+
+void togglePause();
+
+/**
+ * Set an alarm.
+ *
+ * @param int hour - Hour to set the alarm to.
+ * @param int minutes - Minutes to set the alarm to.
+ */
+void setAlarm(int hour, int minutes)
+{
+  RTCTime alarmTime;
+  alarmTime.setHour(hour);
+  alarmTime.setMinute(minutes);
+
+  AlarmMatch matchTime;
+  matchTime.addMatchHour();
+  matchTime.addMatchMinute();
+
+  RTC.setAlarmCallback(togglePause, alarmTime, matchTime);
+}
+
+/**
+ * Toggle the program pause state.
+ */
+void togglePause()
+{
+  isPaused = !isPaused;
+
+  if (isPaused)
+  {
+    setAlarm(start[0], start[1]);
+  }
+  else
+  {
+    setAlarm(end[0], end[1]);
+  }
+}
+
+/**
+ * Convert hours and minutes to number of minutes.
+ */
+int toMinutes(int hour, int minutes)
+{
+  return hour * 60 + minutes;
+}
+
+/**
+ * Check if the current time is between the set start and end time.
+ */
+bool isTimeBetween()
+{
+  RTCTime time;
+  RTC.getTime(time);
+
+  int currentMinutes = toMinutes(time.getHour(), time.getMinutes());
+  int startMinutes = toMinutes(start[0], start[1]);
+  int endMinutes = toMinutes(end[0], end[1]);
+
+  bool isBetween = false;
+
+  if (endMinutes <= startMinutes)
+  {
+    isBetween = currentMinutes >= startMinutes || currentMinutes <= endMinutes;
+  }
+  else
+  {
+    isBetween = currentMinutes >= startMinutes && currentMinutes <= endMinutes;
+  }
+
+  return isBetween;
+}
+
+/**
+ * Check if the program should be paused or resumed.
+ */
+void checkPause()
+{
+  if (!isTimeBetween())
+  {
+    togglePause();
+  }
+  else
+  {
+    setAlarm(end[0], end[1]);
+  }
+}
 
 /**
  * Get specific color or random color if not specified.
@@ -128,7 +278,7 @@ void setColors()
   case seriesMode:
     currentColor = getColor(series[colorIndex]);
     colorIndex = (colorIndex + 1) % seriesLength;
-    nextColor =  getColor(series[colorIndex]);
+    nextColor = getColor(series[colorIndex]);
     break;
   }
 }
@@ -193,12 +343,21 @@ void setup()
 {
   Serial.begin(9600); // Enable writing messages to monitor.
   while (!Serial)
+    ;
 
-    pinMode(LEDS_PIN, OUTPUT);
+  validateSettings();
+
+  pinMode(LEDS_PIN, OUTPUT);
   pinMode(UV_PIN, OUTPUT);
 
-  LEDS.begin();
+  if (AUTOPAUSE == true)
+  {
+    connectWiFi();
+    setClock();
+    checkPause();
+  }
 
+  LEDS.begin();
   setState();
 }
 
@@ -207,6 +366,9 @@ void setup()
  */
 void loop()
 {
+  if (isPaused)
+    return;
+
   switch (state)
   {
   case setColor:
