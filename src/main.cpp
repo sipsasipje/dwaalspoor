@@ -43,6 +43,7 @@ Adafruit_NeoPixel LEDS = Adafruit_NeoPixel(LEDS_NUM, LEDS_PIN, NEO_GRB + NEO_KHZ
 
 // Program state.
 bool isPaused = false; // Program is paused.
+bool isSequenceEnd = false;
 
 #define duration millis() - stamp
 unsigned long stamp = 0; // Timestamp
@@ -75,6 +76,16 @@ void validateSettings()
   checkTime(end);
 }
 
+/*
+ * Turn off the LED's and UV.
+ */
+void shutDown()
+{
+  LEDS.clear();
+  LEDS.show();
+  digitalWrite(UV_PIN, 0);
+}
+
 /**
  * Make WiFi connection.
  */
@@ -102,15 +113,6 @@ void setClock()
   RTCTime rtcTime = RTCTime(unixTime);
   rtcTime.setSaveLight(SaveLight::SAVING_TIME_ACTIVE);
 
-  // int dayOfMonth = rtcTime.getDayOfMonth();
-  // Month month = rtcTime.getMonth();
-  // int year = rtcTime.getYear();
-  // int hour = rtcTime.getHour() + TIMEOFFSET;
-  // int minutes = rtcTime.getMinutes();
-  // int seconds = rtcTime.getSeconds();
-  // DayOfWeek dayOfWeek = rtcTime.getDayOfWeek();
-
-  // RTCTime start(dayOfMonth, month, year, hour, minutes, seconds, dayOfWeek, SaveLight::SAVING_TIME_ACTIVE);
   RTC.setTime(rtcTime);
 }
 
@@ -144,6 +146,7 @@ void togglePause()
 
   if (isPaused)
   {
+    // shutDown();
     setAlarm(start[0], start[1]);
   }
   else
@@ -291,6 +294,16 @@ void setState()
   static uint8_t sequenceIndex = 0, stateIndex = 0, repeatIndex = 0;
   static uint8_t numSequences = sizeof(sequences) / sizeof(Sequence);
 
+  if (!isPaused)
+  {
+    isSequenceEnd = false;
+  }
+  else if (sequenceIndex == 0 && stateIndex == 0 && repeatIndex == 0)
+  {
+    isSequenceEnd = true;
+    shutDown();
+  }
+
   Sequence sequence = sequences[sequenceIndex];
   uint8_t sequenceLength = sequence.length;
   uint8_t sequenceRepeat = sequence.repeat;
@@ -366,7 +379,7 @@ void setup()
  */
 void loop()
 {
-  if (isPaused)
+  if (isPaused && isSequenceEnd)
     return;
 
   switch (state)

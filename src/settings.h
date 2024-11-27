@@ -3,8 +3,8 @@
 
 // Run between start and end time if AUTOPAUSE is true.
 #define AUTOPAUSE true
-int start[2] = {14, 00};
-int end[2] = {7, 00};
+int start[2] = {15, 00};
+int end[2] = {15, 15};
 
 // Hold the lights.
 unsigned int hold = 2000;
